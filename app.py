@@ -171,7 +171,7 @@ def scan():
     except Exception as e:
         return jsonify({"error": str(e)})
         if not isinstance(data, list):
-        return jsonify({"error": "Unexpected response"}), 500
+           return jsonify({"error": "Unexpected response"}), 500
     return jsonify({"events_scanned": len(data), "value_bets": analyse(data, min_edge, ref)})
 
 
