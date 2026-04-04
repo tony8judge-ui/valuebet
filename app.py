@@ -2,6 +2,11 @@ from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 import requests
 import os
+import smtplib
+import threading
+import time
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 CORS(app)
@@ -10,6 +15,74 @@ ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 BOOKMAKERS = "pinnacle,betfair_ex_best_odds,bet365,williamhill,ladbrokes,skybet,paddypower,coral,betvictor,unibet,betway"
 BETFAIR_COMMISSION = 0.05
 
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
+GMAIL_USER = "tony8judge@gmail.com"
+GMAIL_APP_PASSWORD = "YOUR_APP_PASSWORD_HERE"
+ALERT_EMAIL = "tony8judge@gmail.com"
+SCAN_INTERVAL = 900
+SPORTS_TO_SCAN = ["soccer_epl", "soccer_fa_cup", "soccer_efl_champ", "soccer_uefa_champs_league"]
+
+already_alerted = set()
+def send_email(arbs):
+    if not arbs:
+        return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"⚡ {len(arbs)} ARB FOUND - Value Bet Finder"
+        msg["From"] = GMAIL_USER
+        msg["To"] = ALERT_EMAIL
+
+        text = "ARB OPPORTUNITIES FOUND\n\n"
+        for a in arbs:
+            text += f"Match: {a['match']}\n"
+            text += f"Back: {a['outcome']} @ {a['odds']} ({a['bookmaker']})\n"
+            text += f"Betfair Lay: {a['bf_lay_price']}\n"
+            text += f"Edge: +{a['edge']}%\n"
+            text += f"Time: {a['time']}\n"
+            text += "-" * 40 + "\n\n"
+
+        html = "<h2>⚡ Arb Opportunities Found</h2>"
+        for a in arbs:
+            html += f"""
+            <div style='border:2px solid #00b4ff;background:#001a2a;padding:15px;margin:10px 0;border-radius:4px;font-family:monospace;'>
+            <h3 style='color:#00b4ff;margin:0 0 10px'>{a['match']}</h3>
+            <p><b>Back:</b> {a['outcome']} @ <span style='color:#00ff87;font-size:18px'><b>{a['odds']}</b></span> ({a['bookmaker']})</p>
+            <p><b>Betfair Lay:</b> <span style='color:#00b4ff'>{a['bf_lay_price']}</span></p>
+            <p><b>Edge:</b> <span style='color:#ffb800'>+{a['edge']}%</span></p>
+            <p><b>Kick off:</b> {a['time']}</p>
+            </div>"""
+
+        msg.attach(MIMEText(text, "plain"))
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, ALERT_EMAIL, msg.as_string())
+        print(f"Email sent: {len(arbs)} arbs")
+    except Exception as e:
+        print(f"Email error: {e}")
+
+
+def auto_scan():
+    while True:
+        try:
+            if not ODDS_API_KEY:
+                time.sleep(SCAN_INTERVAL)
+                continue
+            print("Auto-scanning for arbs...")
+            new_arbs = []
+            for sport in SPORTS_TO_SCAN:
+                url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
+                       f"?apiKey={ODDS_API_KEY}&regions=uk&markets=h2h"
+                       f"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
+                r = requests.get(url, timeout=15)
+                if not r.ok:
+                    continue
+                data = r.json()
+                if not isinstance(data, list):
+                    continue
+                results = analyse(data, 1, "pinnacle")
+                for result in results:
 HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,7 +111,7 @@ HTML = """<!DOCTYPE html>
   .note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);padding:10px 12px;background:var(--ad);border:1px solid var(--amber);border-radius:2px;line-height:1.7;}
   .note a{color:var(--amber);}
   .arb-legend{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--blue);padding:10px 12px;background:var(--bd);border:1px solid var(--blue);border-radius:2px;line-height:1.7;}
- .sbar{display:none;gap:5px;margin-bottom:12px;grid-template-columns:repeat(5,1fr);}
+  .sbar{display:none;gap:5px;margin-bottom:12px;grid-template-columns:repeat(5,1fr);}
   .sbar.on{display:grid;}
   .stat{background:var(--surface);border:1px solid var(--border);padding:11px 13px;border-radius:2px;}
   .sl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
@@ -91,11 +164,11 @@ HTML = """<!DOCTYPE html>
 <body>
 <header>
   <div class="logo">Value<span>/</span>Edge</div>
-  <div class="sub">Odds anomaly + Betfair arb detector</div>
+  <div class="sub">Odds anomaly + Betfair arb detector — auto email alerts on</div>
 </header>
 <div class="box">
   <div class="note">Free API key from <a href="https://the-odds-api.com" target="_blank">the-odds-api.com</a> — 500 requests/month, no card needed.</div>
-  <div class="arb-legend">Blue rows = arb opportunity — bookie back price beats Betfair lay price. Back the bookie and lay on Betfair for guaranteed profit.</div>
+  <div class="arb-legend">Blue rows = arb opportunity. Auto-scanning every 15 mins — email alert sent to tony8judge@gmail.com when found.</div>
   <div><label>Odds API Key</label><input type="password" id="apiKey" placeholder="Paste your key here..."/></div>
   <div class="row">
     <div><label>Sport</label><select id="sport"><option value="soccer_epl">Premier League</option><option value="soccer_fa_cup">FA Cup</option><option value="soccer_efl_champ">Championship</option><option value="soccer_uefa_champs_league">Champions League</option><option value="soccer_spain_la_liga">La Liga</option><option value="soccer_italy_serie_a">Serie A</option><option value="soccer_germany_bundesliga">Bundesliga</option><option value="soccer_efl_league_one">League One</option></select></div>
@@ -119,8 +192,8 @@ HTML = """<!DOCTYPE html>
   <button class="fb" onclick="filt('low',this)">Weak</button>
 </div>
 <div class="ch" id="ch"><span>Match / Outcome</span><span>Bookmaker</span><span>Back Odds</span><span>Fair Odds</span><span>BF Lay</span><span>Edge</span><span>Signal</span></div>
-<div id="area"><div class="stbox"><div class="sti">&#128269;</div><div class="stt">Ready to scan</div><div class="sts">Enter your Odds API key, pick a sport, then hit Scan. Blue rows are arb opportunities.</div></div></div>
-<footer>Data: The Odds API · BF Lay = Betfair back / 0.95 · Not financial advice · Gamble responsibly</footer> 
+<div id="area"><div class="stbox"><div class="sti">&#128269;</div><div class="stt">Ready to scan</div><div class="sts">Enter your Odds API key, pick a sport, then hit Scan. Auto email alerts active every 15 mins.</div></div></div>
+<footer>Data: The Odds API · BF Lay = Betfair back / 0.95 · Auto-scan every 15 mins · Not financial advice</footer>
 <script>
 const SPORTS={soccer_epl:'Premier League',soccer_fa_cup:'FA Cup',soccer_efl_champ:'Championship',soccer_uefa_champs_league:'Champions League',soccer_spain_la_liga:'La Liga',soccer_italy_serie_a:'Serie A',soccer_germany_bundesliga:'Bundesliga',soccer_efl_league_one:'League One'};
 let results=[],filter='all';
@@ -292,4 +365,6 @@ def scan():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    scanner = threading.Thread(target=auto_scan, daemon=True)
+    scanner.start()
     app.run(host="0.0.0.0", port=port)
