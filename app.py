@@ -173,7 +173,7 @@ def scan():
     if not isinstance(data, list):
         return jsonify({"error": "Unexpected response"}), 500
     return jsonify({"events_scanned": len(data), "value_bets": analyse(data, min_edge, ref)})
-  @app.route("/")
+@app.route("/")
 def index():
     return Response("""<!DOCTYPE html>
 <html lang="en">
