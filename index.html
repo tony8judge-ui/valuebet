@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Value Bet Finder</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+  :root {
+    --bg:#0a0a0a;--surface:#111;--border:#1e1e1e;--border-bright:#2a2a2a;
+    --green:#00ff87;--green-dim:#00ff8720;--green-mid:#00ff8760;
+    --red:#ff3b3b;--red-dim:#ff3b3b20;--amber:#ffb800;--amber-dim:#ffb80020;
+    --text:#e8e8e8;--muted:#555;--muted2:#333;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;min-height:100vh;padding:24px 16px;}
+  header{margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--border);}
+  .logo{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--green);text-transform:uppercase;margin-bottom:4px;}
+  .logo span{color:var(--muted);}
+  .subtitle{font-size:13px;color:var(--muted);font-weight:300;}
+  .controls{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:20px;margin-bottom:20px;display:grid;gap:14px;}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:600px){.row{grid-template-columns:1fr;}}
+  label{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px;}
+  input,select{width:100%;background:var(--bg);border:1px solid var(--border-bright);color:var(--text);padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;border-radius:2px;outline:none;transition:border-color .2s;}
+  input:focus,select:focus{border-color:var(--green);}
+  input::placeholder{color:var(--muted);}
+  select option{background:#1a1a1a;}
+  .btn{background:var(--green);color:#000;border:none;padding:13px 24px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;border-radius:2px;transition:opacity .2s;width:100%;}
+  .btn:hover{opacity:.85;}.btn:disabled{opacity:.4;cursor:not-allowed;}
+  .note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);padding:10px 12px;background:var(--amber-dim);border:1px solid var(--amber);border-radius:2px;line-height:1.7;}
+  .note a{color:var(--amber);}
+  .server-note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--green);padding:10px 12px;background:var(--green-dim);border:1px solid var(--green-mid);border-radius:2px;line-height:1.7;}
+  .stats-bar{display:none;gap:6px;margin-bottom:14px;grid-template-columns:repeat(4,1fr);}
+  .stats-bar.on{display:grid;}
+  .stat{background:var(--surface);border:1px solid var(--border);padding:12px 14px;border-radius:2px;}
+  .slabel{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;}
+  .sval{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:var(--green);}
+  .sval.amber{color:var(--amber);}
+  .fbar{display:none;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+  .fbar.on{display:flex;}
+  .fbtn{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border:1px solid var(--border-bright);background:transparent;color:var(--muted);cursor:pointer;border-radius:2px;transition:all .15s;}
+  .fbtn.active,.fbtn:hover{border-color:var(--green);color:var(--green);background:var(--green-dim);}
+  .col-hdr{display:none;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);grid-template-columns:2fr 1.2fr .8fr .8fr 1fr .8fr;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);}
+  .col-hdr.on{display:grid;}
+  @media(max-width:700px){.col-hdr{display:none!important;}}
+  .card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--border-bright);margin-bottom:5px;padding:14px;border-radius:0 2px 2px 0;display:grid;grid-template-columns:2fr 1.2fr .8fr .8fr 1fr .8fr;gap:8px;align-items:center;}
+  .card.high{border-left-color:var(--green);background:#0d1a12;}
+  .card.medium{border-left-color:var(--amber);background:#1a1500;}
+  @media(max-width:700px){.card{grid-template-columns:1fr 1fr;}.card>*:first-child{grid-column:1/-1;}}
+  .mname{font-size:14px;font-weight:500;margin-bottom:3px;}
+  .mmeta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);}
+  .obadge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;padding:3px 8px;border-radius:2px;background:var(--muted2);color:var(--text);margin-top:4px;}
+  .clabel{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px;display:none;}
+  @media(max-width:700px){.clabel{display:block;}}
+  .cval{font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  .bname{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}
+  .reflab{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:2px;}
+  .edge{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:700;color:var(--green);}
+  .edge.medium{color:var(--amber);}.edge.low{color:var(--muted);}
+  .sig{display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:2px;}
+  .sig.strong{background:var(--green-dim);color:var(--green);border:1px solid var(--green-mid);}
+  .sig.moderate{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber);}
+  .sig.weak{background:var(--muted2);color:var(--muted);border:1px solid var(--border-bright);}
+  .sig::before{content:'●';font-size:8px;}
+  .spill{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--border-bright);border-radius:2px;color:var(--muted);margin-left:6px;}
+  .statebox{text-align:center;padding:56px 20px;border:1px dashed var(--border-bright);border-radius:4px;}
+  .sticon{font-size:34px;margin-bottom:10px;}
+  .sttitle{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;margin-bottom:6px;}
+  .stsub{font-size:12px;color:var(--muted);max-width:360px;margin:0 auto;line-height:1.7;}
+  .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border-bright);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .errbox{background:var(--red-dim);border:1px solid var(--red);border-radius:4px;padding:16px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--red);margin-bottom:12px;line-height:1.7;}
+  footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);}
+  .dots::after{content:'';animation:dt 1.2s infinite;}
+  @keyframes dt{0%,20%{content:'';}40%{content:'.';}60%{content:'..';}80%,100%{content:'...';}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Value<span>/</span>Edge</div>
+  <div class="subtitle">Odds anomaly detector — bookmakers vs sharp market line</div>
+</header>
+
+<div class="controls">
+  <div class="server-note">
+    ✓ Running via your Render server — works on mobile, no CORS issues.
+  </div>
+  <div class="note">
+    ⚠ Odds API key needed from <a href="https://the-odds-api.com" target="_blank">the-odds-api.com</a> — 500 requests/month free, no card required.
+  </div>
+  <div>
+    <label>Your Render Server URL</label>
+    <input type="text" id="serverUrl" placeholder="https://your-app.onrender.com" />
+  </div>
+  <div class="row">
+    <div>
+      <label>Odds API Key</label>
+      <input type="password" id="apiKey" placeholder="Paste your key here…" />
+    </div>
+    <div>
+      <label>Sport</label>
+      <select id="sport">
+        <option value="soccer_epl">Premier League</option>
+        <option value="soccer_fa_cup">FA Cup</option>
+        <option value="soccer_efl_champ">Championship</option>
+        <option value="soccer_uefa_champs_league">Champions League</option>
+        <option value="soccer_spain_la_liga">La Liga</option>
+        <option value="soccer_italy_serie_a">Serie A</option>
+        <option value="soccer_germany_bundesliga">Bundesliga</option>
+        <option value="soccer_efl_league_one">League One</option>
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>Min Edge % to flag</label>
+      <input type="number" id="minEdge" value="5" min="1" max="50" />
+    </div>
+    <div>
+      <label>Sharp reference line</label>
+      <select id="ref">
+        <option value="pinnacle">Pinnacle (recommended)</option>
+        <option value="betfair">Betfair Exchange</option>
+        <option value="average">Market Average</option>
+      </select>
+    </div>
+  </div>
+  <button class="btn" id="scanBtn" onclick="runScan()">⚡ Scan for Value Bets</button>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat"><div class="slabel">Events Scanned</div><div class="sval" id="sM">—</div></div>
+  <div class="stat"><div class="slabel">Value Bets</div><div class="sval" id="sV">—</div></div>
+  <div class="stat"><div class="slabel">Avg Edge</div><div class="sval amber" id="sE">—</div></div>
+  <div class="stat"><div class="slabel">Best Edge</div><div class="sval" id="sB">—</div></div>
+</div>
+
+<div class="fbar" id="fbar">
+  <button class="fbtn active" onclick="setFilter('all',this)">All</button>
+  <button class="fbtn" onclick="setFilter('high',this)">Strong (&gt;10%)</button>
+  <button class="fbtn" onclick="setFilter('medium',this)">Moderate (5–10%)</button>
+  <button class="fbtn" onclick="setFilter('low',this)">Weak</button>
+</div>
+
+<div class="col-hdr" id="colHdr">
+  <span>Match / Outcome</span><span>Bookmaker</span><span>Their Odds</span><span>Fair Odds</span><span>Edge</span><span>Signal</span>
+</div>
+
+<div id="area">
+  <div class="statebox">
+    <div class="sticon">🔍</div>
+    <div class="sttitle">Ready to scan</div>
+    <div class="stsub">Enter your Render server URL and Odds API key, choose a sport, then hit Scan.</div>
+  </div>
+</div>
+
+<footer>Data: The Odds API · Reference: Pinnacle/Betfair · Not financial advice · Gamble responsibly</footer>
+
+<script>
+const SPORTS={soccer_epl:'Premier League',soccer_fa_cup:'FA Cup',soccer_efl_champ:'Championship',soccer_uefa_champs_league:'Champions League',soccer_spain_la_liga:'La Liga',soccer_italy_serie_a:'Serie A',soccer_germany_bundesliga:'Bundesliga',soccer_efl_league_one:'League One'};
+let results=[], filter='all';
+
+function sl(k){return SPORTS[k]||k;}
+function fmt(d){return Number(d).toFixed(2);}
+function fmtDate(s){return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});}
+function sigLabel(e){return e>=10?'Strong':e>=5?'Moderate':'Weak';}
+
+async function runScan(){
+  const serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/+$/, '');
+  const key = document.getElementById('apiKey').value.trim();
+  const sport = document.getElementById('sport').value;
+  const minE = document.getElementById('minEdge').value || 5;
+  const ref = document.getElementById('ref').value;
+
+  if(!serverUrl){showErr('Please enter your Render server URL.');return;}
+  if(!key){showErr('Please enter your Odds API key.');return;}
+
+  const btn=document.getElementById('scanBtn');
+  btn.disabled=true; btn.textContent='Scanning…';
+  hideExtras(); showLoad('Fetching '+sl(sport)+' odds');
+
+  try{
+    const url=`${serverUrl}/scan?apiKey=${encodeURIComponent(key)}&sport=${sport}&minEdge=${minE}&ref=${ref}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if(!res.ok || data.error){
+      throw new Error(data.error || `Server error ${res.status}`);
+    }
+
+    results = data.value_bets || [];
+    filter='all';
+    document.querySelectorAll('.fbtn').forEach((b,i)=>b.classList.toggle('active',i===0));
+    render();
+    updateStats(data.events_scanned);
+
+  }catch(e){
+    showErr(e.message);
+  }finally{
+    btn.disabled=false; btn.textContent='⚡ Scan for Value Bets';
+  }
+}
+
+function render(){
+  const area=document.getElementById('area');
+  const show=filter==='all'?results:results.filter(r=>r.signal===filter);
+  if(show.length===0){
+    area.innerHTML=`<div class="statebox"><div class="sticon">📊</div><div class="sttitle">No bets match this filter</div><div class="stsub">Try lowering minimum edge or switching to All.</div></div>`;
+    return;
+  }
+  area.innerHTML=show.map(r=>{
+    const sl2=sigLabel(r.edge);
+    const sigC=r.signal==='high'?'strong':r.signal==='medium'?'moderate':'weak';
+    const edgeCls=r.signal!=='high'?r.signal:'';
+    return `<div class="card ${r.signal}">
+      <div>
+        <div class="mname">${r.match}<span class="spill">${sl(r.sport)}</span></div>
+        <div class="mmeta">${fmtDate(r.time)}</div>
+        <div class="obadge">${r.outcome}</div>
+      </div>
+      <div><div class="clabel">Bookmaker</div><div class="bname">${r.bookmaker}</div><div class="reflab">ref: ${r.ref_label}</div></div>
+      <div><div class="clabel">Their Odds</div><div class="cval" style="color:var(--green);font-weight:600">${fmt(r.odds)}</div></div>
+      <div><div class="clabel">Fair Odds</div><div class="cval" style="color:var(--muted)">${fmt(r.fair_odds)}</div></div>
+      <div><div class="clabel">Edge</div><div class="edge ${edgeCls}">+${Number(r.edge).toFixed(1)}%</div></div>
+      <div><div class="clabel">Signal</div><div class="sig ${sigC}">${sl2}</div></div>
+    </div>`;
+  }).join('');
+  document.getElementById('fbar').classList.add('on');
+  document.getElementById('colHdr').classList.add('on');
+}
+
+function setFilter(t,btn){
+  filter=t;
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}
+
+function updateStats(scanned){
+  document.getElementById('statsBar').classList.add('on');
+  document.getElementById('sM').textContent=scanned;
+  document.getElementById('sV').textContent=results.length;
+  if(results.length){
+    const avg=results.reduce((a,b)=>a+b.edge,0)/results.length;
+    document.getElementById('sE').textContent=avg.toFixed(1)+'%';
+    document.getElementById('sB').textContent='+'+results[0].edge.toFixed(1)+'%';
+  }else{
+    document.getElementById('sE').textContent='—';
+    document.getElementById('sB').textContent='—';
+  }
+}
+
+function hideExtras(){
+  ['statsBar','fbar','colHdr'].forEach(id=>document.getElementById(id).classList.remove('on'));
+}
+function showLoad(msg){
+  document.getElementById('area').innerHTML=`<div class="statebox"><div class="spinner"></div><div class="sttitle dots">${msg}</div><div class="stsub">Fetching live odds via your Render server…</div></div>`;
+}
+function showErr(msg){
+  document.getElementById('area').innerHTML=`<div class="errbox">⚠ ${msg}</div>`;
+}
+</script>
+</body>
+</html>
