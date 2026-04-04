@@ -16,7 +16,7 @@ BOOKMAKERS = "pinnacle,betfair_ex_best_odds,bet365,williamhill,ladbrokes,skybet,
 BETFAIR_COMMISSION = 0.05
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 GMAIL_USER = "tony8judge@gmail.com"
-GMAIL_APP_PASSWORD = "lnbe qazf dhxc cmym"
+GMAIL_APP_PASSWORD = "YOUR_APP_PASSWORD_HERE"
 ALERT_EMAIL = "tony8judge@gmail.com"
 SCAN_INTERVAL = 900
 SPORTS_TO_SCAN = ["soccer_epl", "soccer_fa_cup", "soccer_efl_champ", "soccer_uefa_champs_league"]
@@ -160,11 +160,6 @@ def scan():
     if not api_key:
         return jsonify({"error": "No API key provided"}), 400
     url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
-    if"?apiKey={api_key}&regions=uk&markets=h2h"
-    if"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
-if not api_key:
-        return jsonify({"error": "No API key provided"}), 400
-    url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
            f"?apiKey={api_key}&regions=uk&markets=h2h"
            f"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
     try:
@@ -178,7 +173,7 @@ if not api_key:
     if not isinstance(data, list):
         return jsonify({"error": "Unexpected response"}), 500
     return jsonify({"events_scanned": len(data), "value_bets": analyse(data, min_edge, ref)})
-@app.route("/")
+    @app.route("/")
 def index():
     return Response("""<!DOCTYPE html>
 <html lang="en">
@@ -359,4 +354,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     scanner = threading.Thread(target=auto_scan, daemon=True)
     scanner.start()
-    app.run(host="0.0.0.0", port=port)  
+    app.run(host="0.0.0.0", port=port)
+    
