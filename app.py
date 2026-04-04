@@ -169,15 +169,15 @@ def scan():
             return jsonify({"error": msg}), r.status_code
         data = r.json()
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    if not isinstance(data, list):
+        return jsonify({"error": str(e)}), 500<head>
+        if not isinstance(data, list):
         return jsonify({"error": "Unexpected response"}), 500
     return jsonify({"events_scanned": len(data), "value_bets": analyse(data, min_edge, ref)})
-    @app.route("/")
+
+
+@app.route("/")
 def index():
     return Response("""<!DOCTYPE html>
-<html lang="en">
-<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Value Bet Finder</title>
