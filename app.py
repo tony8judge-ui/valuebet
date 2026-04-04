@@ -82,7 +82,7 @@ def analyse(events, min_edge, ref):
         if not ref_book or ref == "average":
             ref_book = build_average(books)
         if not ref_book:
-        continue
+            continue
         ref_market = next((m for m in ref_book.get("markets", []) if m["key"] == "h2h"), None)
         if not ref_market or not ref_market.get("outcomes"):
         continue
