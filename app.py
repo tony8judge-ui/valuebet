@@ -162,6 +162,11 @@ def scan():
     url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
     if"?apiKey={api_key}&regions=uk&markets=h2h"
     if"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
+if not api_key:
+        return jsonify({"error": "No API key provided"}), 400
+    url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
+           f"?apiKey={api_key}&regions=uk&markets=h2h"
+           f"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
     try:
         r = requests.get(url, timeout=15)
         if not r.ok:
