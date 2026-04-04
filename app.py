@@ -85,7 +85,7 @@ def analyse(events, min_edge, ref):
         continue
         ref_market = next((m for m in ref_book.get("markets", []) if m["key"] == "h2h"), None)
         if not ref_market or not ref_market.get("outcomes"):
-            continue
+        continue
         outcomes = ref_market["outcomes"]
         fair_probs = remove_vig([1/o["price"] for o in outcomes])
         fair_map = {o["name"]: 1/fp for o, fp in zip(outcomes, fair_probs)}
