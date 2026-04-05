@@ -12,339 +12,660 @@ app = Flask(__name__)
 CORS(app)
 
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
-BOOKMAKERS = "pinnacle,betfair_ex_best_odds,bet365,williamhill,ladbrokes,skybet,paddypower,coral,betvictor,unibet,betway"
 BETFAIR_COMMISSION = 0.05
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
-GMAIL_USER = "tony8judge@gmail.com"
-GMAIL_APP_PASSWORD = "ldxg ymgq jovn eers"
-ALERT_EMAIL = "tony8judge@gmail.com"
-SCAN_INTERVAL = 900
-SPORTS_TO_SCAN = ["soccer_epl", "soccer_fa_cup", "soccer_efl_champ", "soccer_uefa_champs_league"]
+
+# ── Config ─────────────────────────────────────────────────────────
+ODDS_API_KEY      = os.environ.get("ODDS_API_KEY", "")
+GMAIL_USER        = "tony8judge@gmail.com"
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")  # set in Render env vars
+ALERT_EMAIL       = "tony8judge@gmail.com"
+SCAN_INTERVAL     = 900  # 15 minutes
+
+# UK leagues only — no cups, no European
+UK_LEAGUES = [
+    "soccer_epl",
+    "soccer_efl_champ",
+    "soccer_england_league1",
+    "soccer_england_league2",
+    "soccer_scotland_premiership",
+]
+
+# All markets available from UK bookmakers
+MARKETS = [
+    "h2h",                       # Match Result 1X2
+    "totals",                    # Over/Under Goals
+    "btts",                      # Both Teams to Score
+    "draw_no_bet",               # Draw No Bet
+    "double_chance",             # Double Chance
+    "h2h_h1",                    # 1st Half Result
+    "totals_h1",                 # 1st Half Over/Under
+    "alternate_totals_corners",  # Corners Over/Under
+    "alternate_totals_cards",    # Cards / Bookings Over/Under
+]
+
+# UK fixed-odds bookmakers only (no exchanges as back bets)
+UK_BOOKMAKERS = [
+    "sport888", "betfair_sb_uk", "betvictor", "betway", "boylesports",
+    "casumo", "coral", "grosvenor", "ladbrokes_uk", "leovegas",
+    "livescorebet", "paddypower", "skybet", "unibet_uk", "virginbet",
+    "williamhill",
+]
+
+BOOK_LABELS = {
+    "sport888": "888sport", "betfair_sb_uk": "Betfair SB",
+    "betvictor": "Bet Victor", "betway": "Betway",
+    "boylesports": "BoyleSports", "casumo": "Casumo",
+    "coral": "Coral", "grosvenor": "Grosvenor",
+    "ladbrokes_uk": "Ladbrokes", "leovegas": "LeoVegas",
+    "livescorebet": "LiveScore Bet", "paddypower": "Paddy Power",
+    "skybet": "Sky Bet", "unibet_uk": "Unibet",
+    "virginbet": "Virgin Bet", "williamhill": "William Hill",
+}
+
+LEAGUE_LABELS = {
+    "soccer_epl": "Premier League",
+    "soccer_efl_champ": "Championship",
+    "soccer_england_league1": "League One",
+    "soccer_england_league2": "League Two",
+    "soccer_scotland_premiership": "Scottish Prem",
+}
+
+MARKET_LABELS = {
+    "h2h": "Match Result (1X2)",
+    "totals": "Over/Under Goals",
+    "btts": "Both Teams to Score",
+    "draw_no_bet": "Draw No Bet",
+    "double_chance": "Double Chance",
+    "h2h_h1": "1st Half Result",
+    "totals_h1": "1st Half Over/Under",
+    "alternate_totals_corners": "Corners Over/Under",
+    "alternate_totals_cards": "Cards / Bookings Over/Under",
+}
+
 already_alerted = set()
 
 
-def send_email(arbs):
-    if not arbs:
+# ── Email ──────────────────────────────────────────────────────────
+def send_email(arbs, value_bets):
+    total = len(arbs) + len(value_bets)
+    if total == 0:
         return
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"ARB FOUND - {len(arbs)} opportunity"
-        msg["From"] = GMAIL_USER
-        msg["To"] = ALERT_EMAIL
-        text = "ARB OPPORTUNITIES\n\n"
-        for a in arbs:
-            text += f"Match: {a['match']}\n"
-            text += f"Back: {a['outcome']} @ {a['odds']} ({a['bookmaker']})\n"
-            text += f"BF Lay: {a['bf_lay_price']}\n"
-            text += f"Edge: +{a['edge']}%\n\n"
-        msg.attach(MIMEText(text, "plain"))
+        msg["Subject"] = f"Value/Edge Alert — {len(arbs)} arb(s), {len(value_bets)} value bet(s)"
+        msg["From"]    = GMAIL_USER
+        msg["To"]      = ALERT_EMAIL
+
+        lines = ["VALUE/EDGE — UK FOOTBALL ALERT\n"]
+
+        if arbs:
+            lines.append("=" * 40)
+            lines.append(f"ARB OPPORTUNITIES ({len(arbs)})")
+            lines.append("=" * 40)
+            for a in arbs:
+                lines.append(f"Match:     {a['match']} [{a['league']}]")
+                lines.append(f"Market:    {a['market_label']}")
+                lines.append(f"Selection: {a['selection']}")
+                lines.append(f"Back:      {a['odds']} @ {a['bookmaker']}")
+                lines.append(f"BF Lay:    {a['bf_lay_price']}")
+                lines.append(f"Edge:      +{a['edge']}%")
+                lines.append("")
+
+        if value_bets:
+            lines.append("=" * 40)
+            lines.append(f"STRONG VALUE BETS ({len(value_bets)})")
+            lines.append("=" * 40)
+            for v in value_bets:
+                lines.append(f"Match:     {v['match']} [{v['league']}]")
+                lines.append(f"Market:    {v['market_label']}")
+                lines.append(f"Selection: {v['selection']}")
+                lines.append(f"Back:      {v['odds']} @ {v['bookmaker']}")
+                lines.append(f"Fair:      {v['fair_odds']} (Pinnacle)")
+                lines.append(f"Edge:      +{v['edge']}%")
+                lines.append("")
+
+        lines.append("Not financial advice. 18+ BeGambleAware.org")
+        msg.attach(MIMEText("\n".join(lines), "plain"))
+
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_USER, ALERT_EMAIL, msg.as_string())
-        print(f"Alert sent: {len(arbs)} arbs")
+        print(f"Alert sent: {len(arbs)} arbs, {len(value_bets)} value bets")
     except Exception as e:
         print(f"Email error: {e}")
 
 
-def remove_vig(probs):
-    total = sum(probs)
-    return [p / total for p in probs]
+# ── Outcome key helpers ────────────────────────────────────────────
+def oc_key(mkt_key, oc):
+    """Unique key for an outcome — includes line for totals/corners/cards."""
+    if any(x in mkt_key for x in ["totals", "corners", "cards"]):
+        return f"{oc['name']}_{oc.get('point', '')}"
+    return oc["name"]
 
 
-def build_average(books):
-    outcome_map = {}
-    for b in books:
-        market = next((m for m in b.get("markets", []) if m["key"] == "h2h"), None)
-        if not market:
-            continue
-        for o in market.get("outcomes", []):
-            outcome_map.setdefault(o["name"], []).append(o["price"])
-    outcomes = [{"name": k, "price": sum(v)/len(v)} for k, v in outcome_map.items()]
-    return {"key": "average", "title": "Market Average", "markets": [{"key": "h2h", "outcomes": outcomes}]}
+def fmt_outcome(mkt_key, oc):
+    """Human-readable outcome label."""
+    if any(x in mkt_key for x in ["totals", "corners", "cards"]):
+        return f"{oc['name']} {oc.get('point', '')}".strip()
+    if mkt_key == "double_chance":
+        return {"Home/Draw": "1X", "Away/Draw": "X2", "Home/Away": "12"}.get(oc["name"], oc["name"])
+    return oc["name"]
 
 
-def analyse(events, min_edge, ref):
+# ── Remove vig from Pinnacle prices ───────────────────────────────
+def remove_vig(outcomes):
+    """Return fair prices with overround removed."""
+    total_prob = sum(1 / o["price"] for o in outcomes)
+    return {
+        oc_key("h2h", o): round(1 / ((1 / o["price"]) / total_prob), 3)
+        for o in outcomes
+    }
+
+
+# ── Core analysis ─────────────────────────────────────────────────
+def analyse(events, min_edge, selected_markets):
     results = []
+
     for ev in events:
         books = ev.get("bookmakers", [])
-        bf_book = next((b for b in books if b["key"] == "betfair_ex_best_odds"), None)
-        bf_back_map = {}
-        if bf_book:
-            bf_market = next((m for m in bf_book.get("markets", []) if m["key"] == "h2h"), None)
-            if bf_market:
-                for o in bf_market.get("outcomes", []):
-                    bf_back_map[o["name"]] = round(o["price"] / (1 - BETFAIR_COMMISSION), 2)
-        ref_book = None
-        if ref == "pinnacle":
-            ref_book = next((b for b in books if b["key"] == "pinnacle"), None)
-        elif ref == "betfair":
-            ref_book = next((b for b in books if b["key"] == "betfair_ex_best_odds"), None)
-        if not ref_book or ref == "average":
-            ref_book = build_average(books)
-        if not ref_book:
-            continue
-        ref_market = next((m for m in ref_book.get("markets", []) if m["key"] == "h2h"), None)
-        if not ref_market or not ref_market.get("outcomes"):
-            continue
-        outcomes = ref_market["outcomes"]
-        fair_probs = remove_vig([1/o["price"] for o in outcomes])
-        fair_map = {o["name"]: 1/fp for o, fp in zip(outcomes, fair_probs)}
-        ref_label = ref_book.get("title", ref) if ref != "average" else "Mkt Avg"
-        for book in books:
-            if book["key"] in ("pinnacle", "betfair_ex_best_odds"):
-                continue
-            market = next((m for m in book.get("markets", []) if m["key"] == "h2h"), None)
-            if not market:
-                continue
-            for o in market.get("outcomes", []):
-                fair = fair_map.get(o["name"])
-                if not fair:
+        league = LEAGUE_LABELS.get(ev.get("sport_key", ""), ev.get("sport_key", ""))
+        match_name = f"{ev['home_team']} v {ev['away_team']}"
+        kickoff = ev.get("commence_time", "")
+
+        # 1. Build Pinnacle fair prices per market
+        pinnacle = next((b for b in books if b["key"] == "pinnacle"), None)
+        pinn_prices = {}  # mkt_key → { oc_key → fair_price }
+        if pinnacle:
+            for mkt in pinnacle.get("markets", []):
+                outcomes = mkt.get("outcomes", [])
+                if not outcomes:
                     continue
-                edge = ((o["price"] / fair) - 1) * 100
-                if edge < 1:
+                total_prob = sum(1 / o["price"] for o in outcomes)
+                pinn_prices[mkt["key"]] = {
+                    oc_key(mkt["key"], o): round(1 / ((1 / o["price"]) / total_prob), 3)
+                    for o in outcomes
+                }
+
+        # 2. Build Betfair Exchange lay prices per market
+        bf = next((b for b in books if b["key"] == "betfair_ex_uk"), None)
+        bf_lay = {}  # mkt_key → { oc_key → lay_price }
+        if bf:
+            for mkt in bf.get("markets", []):
+                is_lay = mkt["key"].endswith("_lay")
+                base = mkt["key"][:-4] if is_lay else mkt["key"]
+                if base not in bf_lay:
+                    bf_lay[base] = {}
+                for o in mkt.get("outcomes", []):
+                    k = oc_key(base, o)
+                    if is_lay:
+                        bf_lay[base][k] = o["price"]
+                    elif k not in bf_lay[base]:
+                        # Approximate lay from BF back price
+                        bf_lay[base][k] = round(o["price"] / (1 - BETFAIR_COMMISSION), 2)
+
+        # 3. Score each UK fixed-odds bookmaker
+        for bk in books:
+            if bk["key"] not in UK_BOOKMAKERS:
+                continue
+            bk_label = BOOK_LABELS.get(bk["key"], bk["key"])
+
+            for mkt in bk.get("markets", []):
+                mkt_key = mkt["key"]
+                if mkt_key not in selected_markets:
                     continue
-                bf_lay = bf_back_map.get(o["name"])
-                is_arb = bf_lay is not None and o["price"] > bf_lay
-                results.append({
-                    "match": f"{ev['home_team']} v {ev['away_team']}",
-                    "sport": ev["sport_key"],
-                    "time": ev["commence_time"],
-                    "outcome": o["name"],
-                    "bookmaker": book.get("title", book["key"]),
-                    "odds": round(o["price"], 2),
-                    "fair_odds": round(fair, 2),
-                    "bf_lay_price": bf_lay,
-                    "is_arb": is_arb,
-                    "edge": round(edge, 2),
-                    "ref_label": ref_label,
-                    "signal": "high" if edge >= 10 else "medium" if edge >= 5 else "low"
-                })
+                fair_map = pinn_prices.get(mkt_key)
+                if not fair_map:
+                    continue  # No Pinnacle price for this market
+
+                for o in mkt.get("outcomes", []):
+                    back_odds = o["price"]
+                    k = oc_key(mkt_key, o)
+                    fair_odds = fair_map.get(k)
+                    if not fair_odds:
+                        continue
+
+                    edge = round(((back_odds / fair_odds) - 1) * 100, 2)
+                    if edge < min_edge:
+                        continue
+
+                    lay_price = (bf_lay.get(mkt_key) or {}).get(k)
+                    is_arb = (lay_price is not None and
+                              back_odds > lay_price)
+
+                    results.append({
+                        "match":        match_name,
+                        "league":       league,
+                        "time":         kickoff,
+                        "market_key":   mkt_key,
+                        "market_label": MARKET_LABELS.get(mkt_key, mkt_key),
+                        "selection":    fmt_outcome(mkt_key, o),
+                        "bookmaker":    bk_label,
+                        "odds":         round(back_odds, 2),
+                        "fair_odds":    fair_odds,
+                        "bf_lay_price": lay_price,
+                        "is_arb":       is_arb,
+                        "edge":         edge,
+                        "signal":       "high" if edge >= 10 else "medium" if edge >= 5 else "low",
+                    })
+
     results.sort(key=lambda x: (not x["is_arb"], -x["edge"]))
     return results
 
 
+# ── Auto-scan background thread ────────────────────────────────────
 def auto_scan():
     while True:
         try:
             if ODDS_API_KEY:
-                new_arbs = []
-                for sport in SPORTS_TO_SCAN:
-                    url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
-                           f"?apiKey={ODDS_API_KEY}&regions=uk&markets=h2h"
-                           f"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
+                all_arbs   = []
+                all_strong = []
+                market_param = ",".join(MARKETS)
+
+                for league in UK_LEAGUES:
+                    url = (
+                        f"{ODDS_API_BASE}/sports/{league}/odds/"
+                        f"?apiKey={ODDS_API_KEY}"
+                        f"&regions=uk,eu"
+                        f"&markets={market_param}"
+                        f"&oddsFormat=decimal"
+                    )
                     r = requests.get(url, timeout=15)
                     if not r.ok:
+                        print(f"Auto-scan skip {league}: {r.status_code}")
                         continue
                     data = r.json()
                     if not isinstance(data, list):
                         continue
-                    for result in analyse(data, 1, "pinnacle"):
+
+                    for result in analyse(data, 1, MARKETS):
+                        alert_key = (
+                            f"{result['match']}_{result['selection']}"
+                            f"_{result['bookmaker']}_{result['market_key']}"
+                        )
+                        if alert_key in already_alerted:
+                            continue
                         if result["is_arb"]:
-                            key = f"{result['match']}_{result['outcome']}_{result['bookmaker']}"
-                            if key not in already_alerted:
-                                new_arbs.append(result)
-                                already_alerted.add(key)
-                if new_arbs:
-                    send_email(new_arbs)
+                            all_arbs.append(result)
+                            already_alerted.add(alert_key)
+                        elif result["edge"] >= 10:
+                            all_strong.append(result)
+                            already_alerted.add(alert_key)
+
+                if all_arbs or all_strong:
+                    send_email(all_arbs, all_strong)
+
         except Exception as e:
             print(f"Auto-scan error: {e}")
+
         time.sleep(SCAN_INTERVAL)
 
 
+# ── /scan endpoint (called by frontend) ───────────────────────────
 @app.route("/scan")
 def scan():
-    api_key = request.args.get("apiKey", "").strip()
-    sport = request.args.get("sport", "soccer_epl")
-    min_edge = float(request.args.get("minEdge", 3))
-    ref = request.args.get("ref", "pinnacle")
+    api_key    = request.args.get("apiKey", "").strip()
+    league     = request.args.get("league", "soccer_epl")
+    min_edge   = float(request.args.get("minEdge", 3))
+    markets_in = request.args.get("markets", "h2h,totals,btts")
+    selected   = [m.strip() for m in markets_in.split(",") if m.strip()]
+
     if not api_key:
         return jsonify({"error": "No API key provided"}), 400
-    url = (f"{ODDS_API_BASE}/sports/{sport}/odds/"
-           f"?apiKey={api_key}&regions=uk&markets=h2h"
-           f"&oddsFormat=decimal&bookmakers={BOOKMAKERS}")
+    if league not in LEAGUE_LABELS:
+        return jsonify({"error": "Invalid league"}), 400
+
+    market_param = ",".join(selected)
+    url = (
+        f"{ODDS_API_BASE}/sports/{league}/odds/"
+        f"?apiKey={api_key}"
+        f"&regions=uk,eu"
+        f"&markets={market_param}"
+        f"&oddsFormat=decimal"
+    )
     try:
         r = requests.get(url, timeout=15)
+        remaining = r.headers.get("x-requests-remaining", "?")
+        used      = r.headers.get("x-requests-last", "?")
         if not r.ok:
             msg = r.json().get("message", f"API error {r.status_code}")
             return jsonify({"error": msg}), r.status_code
         data = r.json()
-    except Exception as e:
-        return jsonify({"error": str(e)})
         if not isinstance(data, list):
-           return jsonify({"error": "Unexpected response"}), 500
-           return jsonify({"events_scanned": len(data), "value_bets": analyse(data, min_edge, ref)})
+            return jsonify({"error": "Unexpected API response"}), 500
+        return jsonify({
+            "events_scanned":    len(data),
+            "value_bets":        analyse(data, min_edge, selected),
+            "quota_remaining":   remaining,
+            "quota_used":        used,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
+# ── Frontend ───────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return Response("""<!DOCTYPE html>
+<html lang="en">
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Value Bet Finder</title>
+<title>Value Bet Finder – UK Football</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
-:root{--bg:#0a0a0a;--surface:#111;--border:#1e1e1e;--bb:#2a2a2a;--green:#00ff87;--gd:#00ff8720;--gm:#00ff8760;--red:#ff3b3b;--rd:#ff3b3b20;--amber:#ffb800;--ad:#ffb80020;--blue:#00b4ff;--bd:#00b4ff20;--bm:#00b4ff60;--text:#e8e8e8;--muted:#555;--m2:#333;}
-*{margin:0;padding:0;box-sizing:border-box;}
-body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;min-height:100vh;padding:20px 16px;}
-header{margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
-.logo{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--green);text-transform:uppercase;margin-bottom:4px;}
-.logo span{color:var(--muted);}
-.sub{font-size:13px;color:var(--muted);font-weight:300;}
-.box{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:18px;margin-bottom:18px;display:grid;gap:12px;}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-@media(max-width:550px){.row{grid-template-columns:1fr;}}
-label{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:5px;}
-input,select{width:100%;background:var(--bg);border:1px solid var(--bb);color:var(--text);padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;border-radius:2px;outline:none;}
-input::placeholder{color:var(--muted);}
-select option{background:#1a1a1a;}
-.btn{background:var(--green);color:#000;border:none;padding:13px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;border-radius:2px;width:100%;}
-.btn:disabled{opacity:.4;cursor:not-allowed;}
-.note{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);padding:10px 12px;background:var(--ad);border:1px solid var(--amber);border-radius:2px;line-height:1.7;}
-.note a{color:var(--amber);}
-.arb-legend{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--blue);padding:10px 12px;background:var(--bd);border:1px solid var(--blue);border-radius:2px;line-height:1.7;}
-.sbar{display:none;gap:5px;margin-bottom:12px;grid-template-columns:repeat(5,1fr);}
-.sbar.on{display:grid;}
-.stat{background:var(--surface);border:1px solid var(--border);padding:11px 13px;border-radius:2px;}
-.sl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
-.sv{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--green);}
-.sv.a{color:var(--amber);}.sv.b{color:var(--blue);}
-.fbar{display:none;gap:7px;margin-bottom:10px;flex-wrap:wrap;}
-.fbar.on{display:flex;}
-.fb{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;padding:5px 11px;border:1px solid var(--bb);background:transparent;color:var(--muted);cursor:pointer;border-radius:2px;}
-.fb.active,.fb:hover{border-color:var(--green);color:var(--green);background:var(--gd);}
-.fb.arb-btn.active,.fb.arb-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--bd);}
-.ch{display:none;font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;color:var(--muted);grid-template-columns:1.8fr 1fr .7fr .7fr .7fr .7fr .8fr;gap:6px;padding:7px 13px;border-bottom:1px solid var(--border);}
-.ch.on{display:grid;}
-@media(max-width:750px){.ch{display:none!important;}}
-.card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--bb);margin-bottom:5px;padding:13px;border-radius:0 2px 2px 0;display:grid;grid-template-columns:1.8fr 1fr .7fr .7fr .7fr .7fr .8fr;gap:6px;align-items:center;}
-.card.high{border-left-color:var(--green);background:#0d1a12;}
-.card.medium{border-left-color:var(--amber);background:#1a1500;}
-.card.arb{border-left-color:var(--blue);background:#001a2a;border-color:var(--blue);}
-@media(max-width:750px){.card{grid-template-columns:1fr 1fr;}.card>*:first-child{grid-column:1/-1;}}
-.mn{font-size:13px;font-weight:500;margin-bottom:2px;}
-.mm{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);}
-.ob{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;padding:3px 7px;border-radius:2px;background:var(--m2);color:var(--text);margin-top:3px;}
-.cl{font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;color:var(--muted);margin-bottom:2px;display:none;}
-@media(max-width:750px){.cl{display:block;}}
-.cv{font-family:'IBM Plex Mono',monospace;font-size:13px;}
-.bn{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;}
-.rl{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:2px;}
-.edg{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;color:var(--green);}
-.edg.medium{color:var(--amber);}.edg.low{color:var(--muted);}
-.lay-price{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--blue);}
-.no-arb{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);}
-.arb-badge{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;padding:5px 10px;border-radius:2px;background:var(--bd);color:var(--blue);border:1px solid var(--bm);}
-.sig{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;padding:4px 9px;border-radius:2px;}
-.sig.strong{background:var(--gd);color:var(--green);border:1px solid var(--gm);}
-.sig.moderate{background:var(--ad);color:var(--amber);border:1px solid var(--amber);}
-.sig.weak{background:var(--m2);color:var(--muted);border:1px solid var(--bb);}
-.sig::before{content:'●';font-size:7px;}
-.sp{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:2px 5px;border:1px solid var(--bb);border-radius:2px;color:var(--muted);margin-left:6px;}
-.stbox{text-align:center;padding:50px 20px;border:1px dashed var(--bb);border-radius:4px;}
-.sti{font-size:32px;margin-bottom:10px;}
-.stt{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;margin-bottom:6px;}
-.sts{font-size:12px;color:var(--muted);max-width:340px;margin:0 auto;line-height:1.7;}
-.spin{display:inline-block;width:18px;height:18px;border:2px solid var(--bb);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.err{background:var(--rd);border:1px solid var(--red);border-radius:4px;padding:14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--red);line-height:1.7;}
-footer{margin-top:32px;padding-top:14px;border-top:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);}
-.dots::after{content:'';animation:dt 1.2s infinite;}
-@keyframes dt{0%,20%{content:'';}40%{content:'.';}60%{content:'..';}80%,100%{content:'...';}}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+:root{
+  --bg:#0a0d12;--surf:#111520;--surf2:#171c2a;--bord:#1e2640;
+  --acc:#00e5a0;--acc2:#0099ff;--arbbg:#00112a;
+  --txt:#c8d0e0;--dim:#566080;--bright:#eef2ff;
+  --strong:#22ff99;--mod:#ffcc00;--weak:#8899bb;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,160,.013)1px,transparent 1px),linear-gradient(90deg,rgba(0,229,160,.013)1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:20px 14px}
+header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--bord)}
+.logo{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--acc);letter-spacing:-.5px}
+.logo em{color:var(--dim);font-style:normal}
+.tagline{font-size:11px;color:var(--dim);font-family:var(--mono);margin-top:2px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px;border:1px solid;letter-spacing:.3px}
+.bg{border-color:var(--acc);color:var(--acc);background:rgba(0,229,160,.07)}
+.bb{border-color:var(--acc2);color:var(--acc2);background:rgba(0,153,255,.07)}
+.bd{border-color:var(--bord);color:var(--dim)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);margin-right:4px;animation:pulse 2s infinite;vertical-align:middle}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.panel{background:var(--surf);border:1px solid var(--bord);border-radius:6px;padding:16px;margin-bottom:12px}
+.ptitle{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin-bottom:12px;padding-bottom:7px;border-bottom:1px solid var(--bord)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
+@media(max-width:660px){.g2,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:400px){.g2,.g4{grid-template-columns:1fr}}
+.flabel{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.9px;text-transform:uppercase;margin-bottom:5px;display:block}
+input,select{width:100%;background:var(--surf2);border:1px solid var(--bord);color:var(--bright);font-family:var(--mono);font-size:13px;padding:8px 11px;border-radius:4px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none}
+input:focus,select:focus{border-color:var(--acc)}
+.hint{font-size:11px;color:var(--dim);font-family:var(--mono);margin-top:5px}
+.hint a{color:var(--acc2);text-decoration:none}
+select option{background:#111520}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.chip,.mchip{font-family:var(--mono);font-size:11px;padding:4px 11px;border-radius:3px;border:1px solid var(--bord);background:var(--surf2);cursor:pointer;transition:all .15s;user-select:none;white-space:nowrap;color:var(--dim)}
+.chip:hover,.chip.on{border-color:var(--acc);color:var(--acc)}
+.chip.on{background:rgba(0,229,160,.1)}
+.mchip:hover,.mchip.on{border-color:var(--acc2);color:var(--acc2)}
+.mchip.on{background:rgba(0,153,255,.1)}
+.infobox{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--dim);background:rgba(0,153,255,.04);border:1px solid rgba(0,153,255,.14);border-radius:4px;padding:10px 13px;margin-top:10px}
+.infobox b{color:var(--acc2)}
+.scanbtn{width:100%;margin-top:14px;padding:13px;background:var(--acc);color:#000;font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:1px;border:none;border-radius:4px;cursor:pointer;transition:all .2s;text-transform:uppercase}
+.scanbtn:hover{background:#00ffb0;transform:translateY(-1px)}
+.scanbtn:disabled{background:var(--dim);cursor:not-allowed;transform:none}
+.prog{height:2px;background:var(--bord);border-radius:1px;overflow:hidden;margin:10px 0 4px;display:none}
+.progfill{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));width:0%;transition:width .4s}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
+@media(max-width:540px){.stats{grid-template-columns:repeat(3,1fr)}}
+.scard{background:var(--surf);border:1px solid var(--bord);border-radius:5px;padding:11px;text-align:center}
+.sval{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--bright);display:block;line-height:1;margin-bottom:3px}
+.svg{color:var(--acc)}.svb{color:var(--acc2)}
+.slbl{font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:.8px;text-transform:uppercase}
+.ftabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.ftab{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:3px;border:1px solid var(--bord);background:var(--surf);color:var(--dim);cursor:pointer;transition:all .15s}
+.ftab:hover{border-color:var(--dim);color:var(--txt)}
+.ftab.on{border-color:var(--acc);color:var(--acc);background:rgba(0,229,160,.08)}
+.reswrap{background:var(--surf);border:1px solid var(--bord);border-radius:6px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--surf2)}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim);padding:9px 12px;text-align:left;border-bottom:1px solid var(--bord);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid rgba(30,38,64,.5);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.016)}
+tr.arb td{background:var(--arbbg)!important}
+tr.arb td:first-child{border-left:3px solid var(--acc2)}
+.mname{font-weight:500;color:var(--bright);font-size:13px}
+.mtag{font-family:var(--mono);font-size:9px;color:var(--dim);display:block;margin-top:1px}
+.mktlbl{font-family:var(--mono);font-size:9px;color:var(--acc2);display:block;margin-top:1px}
+.bkname{font-family:var(--mono);font-size:12px;color:var(--txt)}
+.oddc{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--bright)}
+.fairo{font-family:var(--mono);font-size:13px;color:var(--dim)}
+.layo{font-family:var(--mono);font-size:13px}
+.edgec{font-family:var(--mono);font-size:13px;font-weight:700}
+.es{color:var(--strong)}.em{color:var(--mod)}.ew{color:var(--weak)}
+.sig{font-family:var(--mono);font-size:10px;padding:3px 7px;border-radius:3px;white-space:nowrap}
+.sarb{background:rgba(0,68,204,.25);color:#6699ff;border:1px solid rgba(0,68,204,.5)}
+.ss{background:rgba(34,255,153,.1);color:var(--strong);border:1px solid rgba(34,255,153,.3)}
+.sm{background:rgba(255,204,0,.08);color:var(--mod);border:1px solid rgba(255,204,0,.3)}
+.sw{background:rgba(136,153,187,.07);color:var(--weak);border:1px solid rgba(136,153,187,.2)}
+.empty{padding:54px 20px;text-align:center}
+.emico{font-size:30px;margin-bottom:10px;opacity:.35}
+.emmsg{font-family:var(--mono);font-size:13px;color:var(--dim)}
+.errmsg{font-family:var(--mono);font-size:12px;color:#ff6b6b;padding:11px 14px;background:rgba(255,60,60,.07);border:1px solid rgba(255,60,60,.2);border-radius:4px;margin-bottom:12px;display:none}
+.quotabar{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;margin-bottom:8px;display:none}
+.quotabar span{color:var(--acc)}
+footer{margin-top:18px;padding-top:13px;border-top:1px solid var(--bord);font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;gap:14px;flex-wrap:wrap}
 </style>
 </head>
 <body>
+<div class="wrap">
+
 <header>
-<div class="logo">Value<span>/</span>Edge</div>
-<div class="sub">Odds anomaly + Betfair arb detector — auto email alerts active</div>
+  <div>
+    <div class="logo">VALUE<em>/</em>EDGE <em style="font-size:13px">· UK Football</em></div>
+    <div class="tagline">Betfair arb + value detector · UK leagues · Pinnacle sharp reference · auto email alerts</div>
+  </div>
+  <div class="badges">
+    <span class="badge bg"><span class="dot"></span>AUTO-SCAN</span>
+    <span class="badge bb">BF ARB</span>
+    <span class="badge bd">UK BOOKS</span>
+    <span class="badge bd">PINNACLE REF</span>
+  </div>
 </header>
-<div class="box">
-<div class="note">Free API key from <a href="https://the-odds-api.com" target="_blank">the-odds-api.com</a> — 500 requests/month free.</div>
-<div class="arb-legend">Blue rows = arb — back the bookie and lay on Betfair for guaranteed profit. Email alert sent automatically.</div>
-<div><label>Odds API Key</label><input type="password" id="apiKey" placeholder="Paste your key here..."/></div>
-<div class="row">
-<div><label>Sport</label><select id="sport"><option value="soccer_epl">Premier League</option><option value="soccer_fa_cup">FA Cup</option><option value="soccer_efl_champ">Championship</option><option value="soccer_uefa_champs_league">Champions League</option><option value="soccer_spain_la_liga">La Liga</option><option value="soccer_italy_serie_a">Serie A</option><option value="soccer_germany_bundesliga">Bundesliga</option><option value="soccer_efl_league_one">League One</option></select></div>
-<div><label>Min Edge %</label><input type="number" id="minEdge" value="3" min="1" max="50"/></div>
+
+<div class="errmsg" id="errMsg"></div>
+
+<div class="panel">
+  <div class="ptitle">API &amp; Settings</div>
+  <div class="g2" style="margin-bottom:12px">
+    <div>
+      <label class="flabel">Odds API Key</label>
+      <input type="password" id="apiKey" placeholder="Paste key from the-odds-api.com"/>
+      <div class="hint">Free key → <a href="https://the-odds-api.com" target="_blank">the-odds-api.com</a> · 500 requests/month</div>
+    </div>
+    <div>
+      <label class="flabel">Min Edge %</label>
+      <input type="number" id="minEdge" value="3" min="0" max="50" step="0.5"/>
+      <div class="hint">Edge vs Pinnacle fair price · arbs always shown regardless</div>
+    </div>
+  </div>
 </div>
-<div><label>Sharp reference</label><select id="ref"><option value="pinnacle">Pinnacle (recommended)</option><option value="betfair">Betfair Exchange</option><option value="average">Market Average</option></select></div>
-<button class="btn" id="scanBtn" onclick="go()">Scan for Value Bets + Arbs</button>
+
+<div class="panel">
+  <div class="ptitle">Leagues</div>
+  <div class="chips">
+    <div class="chip on" data-key="soccer_epl">⚽ Premier League</div>
+    <div class="chip on" data-key="soccer_efl_champ">Championship</div>
+    <div class="chip on" data-key="soccer_england_league1">League One</div>
+    <div class="chip on" data-key="soccer_england_league2">League Two</div>
+    <div class="chip"    data-key="soccer_scotland_premiership">🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Prem</div>
+  </div>
 </div>
-<div class="sbar" id="sb">
-<div class="stat"><div class="sl">Events</div><div class="sv" id="sM">-</div></div>
-<div class="stat"><div class="sl">Value Bets</div><div class="sv" id="sV">-</div></div>
-<div class="stat"><div class="sl">Avg Edge</div><div class="sv a" id="sE">-</div></div>
-<div class="stat"><div class="sl">Best Edge</div><div class="sv" id="sB">-</div></div>
-<div class="stat"><div class="sl">Arbs</div><div class="sv b" id="sA">-</div></div>
+
+<div class="panel">
+  <div class="ptitle">Markets</div>
+  <div class="chips">
+    <div class="mchip on"  data-key="h2h">Match Result (1X2)</div>
+    <div class="mchip on"  data-key="totals">Over/Under Goals</div>
+    <div class="mchip on"  data-key="btts">Both Teams to Score</div>
+    <div class="mchip"     data-key="draw_no_bet">Draw No Bet</div>
+    <div class="mchip"     data-key="double_chance">Double Chance</div>
+    <div class="mchip"     data-key="h2h_h1">1st Half Result</div>
+    <div class="mchip"     data-key="totals_h1">1st Half Over/Under</div>
+    <div class="mchip"     data-key="alternate_totals_corners">Corners Over/Under</div>
+    <div class="mchip"     data-key="alternate_totals_cards">Cards / Bookings O/U</div>
+  </div>
+  <div class="infobox">
+    <b>Sharp reference:</b> Pinnacle fetched via EU region — used only to calculate fair odds, never shown as a bet. All back bets are UK fixed-odds bookmakers only. Blue rows = confirmed arb vs Betfair Exchange.
+  </div>
 </div>
-<div class="fbar" id="fb">
-<button class="fb active" onclick="filt('all',this)">All</button>
-<button class="fb arb-btn" onclick="filt('arb',this)">Arbs Only</button>
-<button class="fb" onclick="filt('high',this)">Strong 10%+</button>
-<button class="fb" onclick="filt('medium',this)">Moderate 5-10%</button>
-<button class="fb" onclick="filt('low',this)">Weak</button>
+
+<button class="scanbtn" id="scanBtn" onclick="runScan()">⚡ Scan for Value Bets + Arbs</button>
+<div class="prog" id="progBar"><div class="progfill" id="progFill"></div></div>
+
+<div class="quotabar" id="quotaBar">
+  API credits remaining: <span id="quotaRem">—</span> &nbsp;·&nbsp; used this call: <span id="quotaUsed">—</span>
 </div>
-<div class="ch" id="ch"><span>Match</span><span>Bookmaker</span><span>Back</span><span>Fair</span><span>BF Lay</span><span>Edge</span><span>Signal</span></div>
-<div id="area"><div class="stbox"><div class="sti">&#128269;</div><div class="stt">Ready to scan</div><div class="sts">Enter your Odds API key and hit Scan. Auto email alerts active every 15 mins.</div></div></div>
-<footer>The Odds API · BF Lay = back/0.95 · Auto-scan every 15 mins · Not financial advice</footer>
+
+<div class="stats">
+  <div class="scard"><span class="sval" id="sEvents">—</span><span class="slbl">Events</span></div>
+  <div class="scard"><span class="sval svg" id="sValue">—</span><span class="slbl">Value Bets</span></div>
+  <div class="scard"><span class="sval" id="sAvg">—</span><span class="slbl">Avg Edge</span></div>
+  <div class="scard"><span class="sval svg" id="sBest">—</span><span class="slbl">Best Edge</span></div>
+  <div class="scard"><span class="sval svb" id="sArbs">—</span><span class="slbl">Arbs</span></div>
+</div>
+
+<div class="ftabs">
+  <div class="ftab on"  onclick="setFilter('all',this)">All</div>
+  <div class="ftab"     onclick="setFilter('arb',this)">Arbs Only</div>
+  <div class="ftab"     onclick="setFilter('strong',this)">Strong 10%+</div>
+  <div class="ftab"     onclick="setFilter('moderate',this)">Moderate 5–10%</div>
+  <div class="ftab"     onclick="setFilter('weak',this)">Weak &lt;5%</div>
+</div>
+
+<div class="reswrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Match</th><th>Market</th><th>Selection</th>
+        <th>Bookmaker</th><th>Back</th><th>Fair (Pinnacle)</th>
+        <th>BF Lay</th><th>Edge</th><th>Signal</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody">
+      <tr><td colspan="9">
+        <div class="empty"><div class="emico">🔍</div>
+        <div class="emmsg">Enter your API key and hit Scan</div></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  <span>The Odds API · regions=uk,eu · Pinnacle as sharp ref · BF Lay ≈ back÷0.95</span>
+  <span>Auto email alerts every 15 mins server-side · Not financial advice · 18+ BeGambleAware.org</span>
+</footer>
+</div>
+
 <script>
-const S={soccer_epl:'Premier League',soccer_fa_cup:'FA Cup',soccer_efl_champ:'Championship',soccer_uefa_champs_league:'Champions League',soccer_spain_la_liga:'La Liga',soccer_italy_serie_a:'Serie A',soccer_germany_bundesliga:'Bundesliga',soccer_efl_league_one:'League One'};
-let results=[],filter='all';
-function sl(k){return S[k]||k;}
-function fmt(d){return Number(d).toFixed(2);}
-function fd(s){return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});}
-function slbl(e){return e>=10?'Strong':e>=5?'Moderate':'Weak';}
-async function go(){
-var key=document.getElementById('apiKey').value.trim();
-var sport=document.getElementById('sport').value;
-var minE=document.getElementById('minEdge').value||3;
-var ref=document.getElementById('ref').value;
-if(!key){showErr('Please enter your Odds API key.');return;}
-var btn=document.getElementById('scanBtn');
-btn.disabled=true;btn.textContent='Scanning...';
-hide();showLoad('Fetching '+sl(sport)+' odds');
-try{
-var res=await fetch('/scan?apiKey='+encodeURIComponent(key)+'&sport='+sport+'&minEdge='+minE+'&ref='+ref);
-var data=await res.json();
-if(!res.ok||data.error)throw new Error(data.error||'Server error');
-results=data.value_bets||[];
-filter='all';
-document.querySelectorAll('.fb').forEach(function(b,i){b.classList.toggle('active',i===0);});
-render();stats(data.events_scanned);
-}catch(e){showErr(e.message);}
-finally{btn.disabled=false;btn.textContent='Scan for Value Bets + Arbs';}
+let allResults=[], currentFilter='all';
+
+document.querySelectorAll('.chip,.mchip').forEach(c=>{
+  c.addEventListener('click',()=>c.classList.toggle('on'));
+});
+
+function selLeagues(){ return [...document.querySelectorAll('.chip.on')].map(c=>c.dataset.key); }
+function selMarkets(){ return [...document.querySelectorAll('.mchip.on')].map(c=>c.dataset.key); }
+
+function setFilter(f,el){
+  currentFilter=f;
+  document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  renderTable();
 }
-function render(){
-var area=document.getElementById('area');
-var show=results;
-if(filter==='arb')show=results.filter(function(r){return r.is_arb;});
-else if(filter!=='all')show=results.filter(function(r){return r.signal===filter;});
-if(!show.length){area.innerHTML='<div class="stbox"><div class="sti">&#128202;</div><div class="stt">No results</div><div class="sts">Try lowering min edge or switch to All.</div></div>';return;}
-area.innerHTML=show.map(function(r){
-var isArb=r.is_arb;
-var cc=isArb?'arb':r.signal;
-var sc=r.signal==='high'?'strong':r.signal==='medium'?'moderate':'weak';
-var ec=r.signal!=='high'?r.signal:'';
-var lh=r.bf_lay_price?'<div class="lay-price">'+fmt(r.bf_lay_price)+'</div>':'<div class="no-arb">-</div>';
-var sh=isArb?'<div class="arb-badge">ARB</div>':'<div class="sig '+sc+'">'+slbl(r.edge)+'</div>';
-return '<div class="card '+cc+'"><div><div class="mn">'+r.match+'<span class="sp">'+sl(r.sport)+'</span></div><div class="mm">'+fd(r.time)+'</div><div class="ob">'+r.outcome+'</div></div><div><div class="cl">Bookmaker</div><div class="bn">'+r.bookmaker+'</div><div class="rl">ref: '+r.ref_label+'</div></div><div><div class="cl">Back</div><div class="cv" style="color:var(--green);font-weight:600">'+fmt(r.odds)+'</div></div><div><div class="cl">Fair</div><div class="cv" style="color:var(--muted)">'+fmt(r.fair_odds)+'</div></div><div><div class="cl">BF Lay</div>'+lh+'</div><div><div class="cl">Edge</div><div class="edg '+ec+'">+'+Number(r.edge).toFixed(1)+'%</div></div><div><div class="cl">Signal</div>'+sh+'</div></div>';
-}).join('');
-document.getElementById('fb').classList.add('on');
-document.getElementById('ch').classList.add('on');
+
+async function runScan(){
+  const apiKey=document.getElementById('apiKey').value.trim();
+  if(!apiKey){ return showErr('Please enter your Odds API key.'); }
+  const leagues=selLeagues();
+  if(!leagues.length){ return showErr('Please select at least one league.'); }
+  const markets=selMarkets();
+  if(!markets.length){ return showErr('Please select at least one market.'); }
+
+  clearErr(); setBtn(true); showProg(true); setProg(0);
+  allResults=[];
+  let totalEvents=0;
+
+  try{
+    const mktParam=markets.join(',');
+    for(let i=0;i<leagues.length;i++){
+      setProg(Math.round(((i+0.5)/leagues.length)*90));
+      const url=`/scan?apiKey=${encodeURIComponent(apiKey)}&league=${leagues[i]}&minEdge=1&markets=${mktParam}`;
+      const resp=await fetch(url);
+      const data=await resp.json();
+      if(!resp.ok||data.error) throw new Error(data.error||'Server error');
+      totalEvents+=data.events_scanned||0;
+      allResults.push(...(data.value_bets||[]));
+      if(data.quota_remaining){
+        document.getElementById('quotaBar').style.display='block';
+        document.getElementById('quotaRem').textContent=data.quota_remaining;
+        document.getElementById('quotaUsed').textContent=data.quota_used||'?';
+      }
+    }
+    // Filter client-side by user's min edge
+    const minEdge=parseFloat(document.getElementById('minEdge').value)||3;
+    allResults=allResults.filter(r=>r.edge>=minEdge||r.is_arb);
+    allResults.sort((a,b)=>(b.is_arb-a.is_arb)||b.edge-a.edge);
+    setProg(100);
+    updateStats(totalEvents);
+    renderTable();
+  }catch(e){
+    showErr(e.message||'Scan failed — check your API key.');
+  }finally{
+    setBtn(false);
+    setTimeout(()=>{showProg(false);setProg(0);},600);
+  }
 }
-function filt(t,b){filter=t;document.querySelectorAll('.fb').forEach(function(x){x.classList.remove('active');});b.classList.add('active');render();}
-function stats(n){
-document.getElementById('sb').classList.add('on');
-document.getElementById('sM').textContent=n;
-document.getElementById('sV').textContent=results.length;
-var a=results.filter(function(r){return r.is_arb;}).length;
-document.getElementById('sA').textContent=a;
-if(results.length){
-var avg=results.reduce(function(a,b){return a+b.edge;},0)/results.length;
-document.getElementById('sE').textContent=avg.toFixed(1)+'%';
-document.getElementById('sB').textContent='+'+results[0].edge.toFixed(1)+'%';
-}}
-function hide(){['sb','fb','ch'].forEach(function(id){document.getElementById(id).classList.remove('on');});}
-function showLoad(m){document.getElementById('area').innerHTML='<div class="stbox"><div class="spin"></div><div class="stt dots">'+m+'</div><div class="sts">Fetching live odds...</div></div>';}
-function showErr(m){document.getElementById('area').innerHTML='<div class="err">'+m+'</div>';}
+
+function renderTable(){
+  const tbody=document.getElementById('resultsBody');
+  const filtered=allResults.filter(r=>{
+    if(currentFilter==='arb') return r.is_arb;
+    if(currentFilter==='strong') return r.edge>=10;
+    if(currentFilter==='moderate') return r.edge>=5&&r.edge<10;
+    if(currentFilter==='weak') return r.edge<5;
+    return true;
+  });
+  if(!filtered.length){
+    tbody.innerHTML='<tr><td colspan="9"><div class="empty"><div class="emico">📭</div><div class="emmsg">No bets match this filter</div></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML=filtered.map(r=>{
+    const ec=r.edge>=10?'es':r.edge>=5?'em':'ew';
+    const sig=r.is_arb
+      ?'<span class="sig sarb">⚡ ARB</span>'
+      :r.edge>=10?'<span class="sig ss">STRONG</span>'
+      :r.edge>=5 ?'<span class="sig sm">MODERATE</span>'
+      :'<span class="sig sw">WEAK</span>';
+    const lay=r.bf_lay_price
+      ?`<span class="layo" style="${r.is_arb?'color:#6699ff':''}">${r.bf_lay_price.toFixed(2)}</span>`
+      :'<span style="color:var(--dim)">—</span>';
+    return `<tr class="${r.is_arb?'arb':''}">
+      <td><div class="mname">${r.match}</div><span class="mtag">${r.league} · ${new Date(r.time).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span></td>
+      <td><span class="mktlbl">${r.market_label}</span></td>
+      <td><span style="font-family:var(--mono);font-size:12px;color:var(--bright)">${r.selection}</span></td>
+      <td><span class="bkname">${r.bookmaker}</span></td>
+      <td><span class="oddc">${r.odds.toFixed(2)}</span></td>
+      <td><span class="fairo">${r.fair_odds.toFixed(2)}</span></td>
+      <td>${lay}</td>
+      <td><span class="edgec ${ec}">+${r.edge.toFixed(1)}%</span></td>
+      <td>${sig}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStats(n){
+  document.getElementById('sEvents').textContent=n;
+  document.getElementById('sValue').textContent=allResults.length;
+  document.getElementById('sArbs').textContent=allResults.filter(r=>r.is_arb).length;
+  if(allResults.length){
+    const avg=allResults.reduce((s,r)=>s+r.edge,0)/allResults.length;
+    const best=Math.max(...allResults.map(r=>r.edge));
+    document.getElementById('sAvg').textContent='+'+avg.toFixed(1)+'%';
+    document.getElementById('sBest').textContent='+'+best.toFixed(1)+'%';
+  }
+}
+
+function setBtn(on){ const b=document.getElementById('scanBtn'); b.disabled=on; b.textContent=on?'⏳ Scanning…':'⚡ Scan for Value Bets + Arbs'; }
+function showProg(on){ document.getElementById('progBar').style.display=on?'block':'none'; }
+function setProg(p){ document.getElementById('progFill').style.width=p+'%'; }
+function showErr(m){ const e=document.getElementById('errMsg'); e.textContent='⚠ '+m; e.style.display='block'; }
+function clearErr(){ const e=document.getElementById('errMsg'); e.style.display='none'; e.textContent=''; }
 </script>
 </body>
 </html>""", mimetype="text/html")
@@ -355,4 +676,3 @@ if __name__ == "__main__":
     scanner = threading.Thread(target=auto_scan, daemon=True)
     scanner.start()
     app.run(host="0.0.0.0", port=port)
-    
