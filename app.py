@@ -19,7 +19,8 @@ ODDS_API_KEY      = os.environ.get("ODDS_API_KEY", "")
 GMAIL_USER        = "tony8judge@gmail.com"
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")  # set in Render env vars
 ALERT_EMAIL       = "tony8judge@gmail.com"
-SCAN_INTERVAL     = 900  # 15 minutes
+SCAN_INTERVAL     = 300  # 5 minutes
+HEALTH_CHECK_HOUR = 10   # Send daily "still alive" email at 10am if no alerts fired
 
 # UK leagues only — no cups, no European
 UK_LEAGUES = [
@@ -82,7 +83,11 @@ MARKET_LABELS = {
     "alternate_totals_cards": "Cards / Bookings Over/Under",
 }
 
-already_alerted = set()
+already_alerted   = set()
+last_alert_date   = None   # tracks last date an alert email was sent
+health_check_sent = None   # tracks last date a health check email was sent
+credits_used_today = 0     # running total of API credits used today
+credits_today_date = None  # date the counter was last reset
 
 
 # ── Email ──────────────────────────────────────────────────────────
@@ -252,14 +257,76 @@ def analyse(events, min_edge, selected_markets):
     return results
 
 
+# ── Health check email ─────────────────────────────────────────────
+def send_health_check(events_scanned, quota_remaining, quota_used_today):
+    global health_check_sent
+    today = time.strftime("%Y-%m-%d")
+    if health_check_sent == today:
+        return  # Already sent today
+    try:
+        # Work out when credits renew — same day next month
+        now = time.localtime()
+        renew_month = now.tm_mon + 1 if now.tm_mon < 12 else 1
+        renew_year  = now.tm_year if now.tm_mon < 12 else now.tm_year + 1
+        try:
+            import calendar
+            max_day = calendar.monthrange(renew_year, renew_month)[1]
+            renew_day = min(now.tm_mday, max_day)
+            renew_date = f"{renew_day:02d}/{renew_month:02d}/{renew_year}"
+        except Exception:
+            renew_date = "next month"
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "✅ Value/Edge — Daily Health Check (10am)"
+        msg["From"]    = GMAIL_USER
+        msg["To"]      = ALERT_EMAIL
+        body = (
+            "VALUE/EDGE — DAILY HEALTH CHECK\n\n"
+            f"Time:              {time.strftime('%A %d %B %Y, %H:%M')}\n"
+            f"Status:            ✅ Scanner running normally\n"
+            f"Events scanned:    {events_scanned}\n\n"
+            "── API CREDITS ──────────────────────\n"
+            f"Remaining:         {quota_remaining}\n"
+            f"Used today:        {quota_used_today}\n"
+            f"Renews on:         {renew_date}\n\n"
+            "── LEAGUES MONITORED ────────────────\n"
+            "  · Premier League\n"
+            "  · Championship\n"
+            "  · League One\n"
+            "  · League Two\n"
+            "  · Scottish Premiership\n\n"
+            "You will receive an alert as soon as an arb or 10%+ edge is found.\n\n"
+            "Not financial advice. 18+ BeGambleAware.org"
+        )
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, ALERT_EMAIL, msg.as_string())
+        health_check_sent = today
+        print(f"Health check sent for {today}")
+    except Exception as e:
+        print(f"Health check email error: {e}")
+
+
 # ── Auto-scan background thread ────────────────────────────────────
 def auto_scan():
+    global last_alert_date, health_check_sent, credits_used_today, credits_today_date
+
     while True:
         try:
             if ODDS_API_KEY:
-                all_arbs   = []
-                all_strong = []
+                all_arbs     = []
+                all_strong   = []
+                total_events = 0
+                quota_left   = "?"
                 market_param = ",".join(MARKETS)
+                now          = time.localtime()
+                today        = time.strftime("%Y-%m-%d")
+
+                # Reset daily credit counter at midnight
+                if credits_today_date != today:
+                    credits_used_today = 0
+                    credits_today_date = today
 
                 for league in UK_LEAGUES:
                     url = (
@@ -273,9 +340,21 @@ def auto_scan():
                     if not r.ok:
                         print(f"Auto-scan skip {league}: {r.status_code}")
                         continue
+
+                    # Track credits
+                    rem  = r.headers.get("x-requests-remaining", "?")
+                    used = r.headers.get("x-requests-last", "0")
+                    if rem != "?":
+                        quota_left = rem
+                    try:
+                        credits_used_today += int(used)
+                    except (ValueError, TypeError):
+                        pass
+
                     data = r.json()
                     if not isinstance(data, list):
                         continue
+                    total_events += len(data)
 
                     for result in analyse(data, 1, MARKETS):
                         alert_key = (
@@ -291,8 +370,16 @@ def auto_scan():
                             all_strong.append(result)
                             already_alerted.add(alert_key)
 
+                # Send alert email if new arbs or strong value found
                 if all_arbs or all_strong:
                     send_email(all_arbs, all_strong)
+                    last_alert_date = today
+
+                # Send daily 10am health check
+                if (now.tm_hour == HEALTH_CHECK_HOUR and
+                        now.tm_min < 6 and
+                        health_check_sent != today):
+                    send_health_check(total_events, quota_left, credits_used_today)
 
         except Exception as e:
             print(f"Auto-scan error: {e}")
@@ -548,7 +635,7 @@ footer{margin-top:18px;padding-top:13px;border-top:1px solid var(--bord);font-fa
 
 <footer>
   <span>The Odds API · regions=uk,eu · Pinnacle as sharp ref · BF Lay ≈ back÷0.95</span>
-  <span>Auto email alerts every 15 mins server-side · Not financial advice · 18+ BeGambleAware.org</span>
+  <span>Auto email alerts every 5 mins server-side · Daily 10am health check · Not financial advice · 18+ BeGambleAware.org</span>
 </footer>
 </div>
 
