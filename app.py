@@ -375,7 +375,7 @@ def auto_scan():
                     send_email(all_arbs, all_strong)
                     last_alert_date = today
 
-                # Send daily 10am health check
+                # Send daily 12.45pm health check
                 if (now.tm_hour == HEALTH_CHECK_HOUR and
                         now.tm_min < 11 and
                         health_check_sent != today):
