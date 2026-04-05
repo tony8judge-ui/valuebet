@@ -377,7 +377,7 @@ def auto_scan():
 
                 # Send daily 10am health check
                 if (now.tm_hour == HEALTH_CHECK_HOUR and
-                        now.tm_min < 6 and
+                        now.tm_min < 11 and
                         health_check_sent != today):
                     send_health_check(total_events, quota_left, credits_used_today)
 
