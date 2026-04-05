@@ -20,7 +20,7 @@ GMAIL_USER        = "tony8judge@gmail.com"
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")  # set in Render env vars
 ALERT_EMAIL       = "tony8judge@gmail.com"
 SCAN_INTERVAL     = 300  # 5 minutes
-HEALTH_CHECK_HOUR = 10   # Send daily "still alive" email at 10am if no alerts fired
+HEALTH_CHECK_HOUR = 12.30   # Send daily "still alive" email at 10am if no alerts fired
 
 # UK leagues only — no cups, no European
 UK_LEAGUES = [
